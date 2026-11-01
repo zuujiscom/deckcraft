@@ -24,6 +24,10 @@ serde_json = { workspace = true }
 # `wgpu` pulls egui-wgpu's defaults: WebGPU plus the WebGL2 fallback.
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
 rfd = { workspace = true }
+deckcraft-format = { workspace = true }
+deckcraft-model = { workspace = true }
+# Crash-recovery copies in IndexedDB (craft-libs).
+craft-web-recovery = { git = "https://github.com/zuujiscom/craft-libs", branch = "web-recovery" }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

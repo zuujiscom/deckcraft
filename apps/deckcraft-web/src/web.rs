@@ -24,6 +24,8 @@ pub fn start() {
             log::error!("missing <canvas id=\"{CANVAS_ID}\">");
             return;
         };
+        // Copies of unsaved presentations a closed or crashed tab left, read before the app is built.
+        let mut startup = Some(crate::recovery::open().await);
         let mut options = eframe::WebOptions::default();
         if query().contains("webgl")
             && let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup
@@ -52,7 +54,16 @@ pub fn start() {
                     if q.contains("show") {
                         app.start_show(0, false);
                     }
-                    Ok(Box::new(WebShell { app, inbox }))
+                    let Some(st) = startup.take() else { return Err("recovery store missing".into()) };
+                    let (adopted, message) = crate::recovery::restore(&mut app.session, &st.recovered);
+                    if let Some(m) = message {
+                        app.set_status(m);
+                    }
+                    for w in st.warnings {
+                        log::warn!("crash recovery: {w}");
+                    }
+                    let recovery = crate::recovery::WebRecovery::new(st.store, adopted, &cc.egui_ctx);
+                    Ok(Box::new(WebShell { app, inbox, recovery }))
                 }),
             )
             .await;
@@ -74,12 +85,14 @@ fn query() -> String {
 struct WebShell {
     app: SlideApp,
     inbox: Inbox,
+    recovery: crate::recovery::WebRecovery,
 }
 
 impl eframe::App for WebShell {
     /// Delegate one eframe logic pass to the wrapped application.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.app.logic(ctx);
+        self.recovery.tick(&self.app, ctx);
     }
 
     /// Consume browser drops with fresh input, capture the identity before the asynchronous read,
