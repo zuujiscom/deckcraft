@@ -34,6 +34,8 @@ pub fn start() {
             log::warn!("?host=parent needs a framing page on the same origin; saves download instead");
         }
         let app_bridge = bridge.clone();
+        // Copies of unsaved presentations a closed or crashed tab left, read before the app is built.
+        let mut startup = Some(crate::recovery::open().await);
         let mut options = eframe::WebOptions::default();
         if query_has("webgl")
             && let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup
@@ -79,8 +81,19 @@ pub fn start() {
                     {
                         crate::host::Bridge::set_author(&mut app, &author);
                     }
+                    let Some(st) = startup.take() else { return Err("recovery store missing".into()) };
+                    // In a page framed with ?host=parent the host opens the files, so no copy is reopened there.
+                    let (adopted, message) =
+                        if app_bridge.is_none() { crate::recovery::restore(&mut app.session, &st.recovered) } else { Default::default() };
+                    if let Some(m) = message {
+                        app.set_status(m);
+                    }
+                    for w in st.warnings {
+                        log::warn!("crash recovery: {w}");
+                    }
+                    let recovery = crate::recovery::WebRecovery::new(st.store, adopted, &cc.egui_ctx);
                     crate::api::install(&mut app, cc.egui_ctx.clone());
-                    Ok(Box::new(WebShell { app, inbox, bridge: app_bridge }))
+                    Ok(Box::new(WebShell { app, inbox, bridge: app_bridge, recovery }))
                 }),
             )
             .await;
@@ -121,6 +134,7 @@ struct WebShell {
     inbox: Inbox,
     /// The parent page that keeps the files (`?host=parent`).
     bridge: Option<crate::host::Bridge>,
+    recovery: crate::recovery::WebRecovery,
 }
 
 impl eframe::App for WebShell {
@@ -139,6 +153,7 @@ impl eframe::App for WebShell {
         {
             host.close();
         }
+        self.recovery.tick(&self.app, ctx);
     }
 
     /// Consume browser drops with fresh input, capture the identity before the asynchronous read,
